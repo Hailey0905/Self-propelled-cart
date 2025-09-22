@@ -1,0 +1,163 @@
+#define F_CPU 8000000UL 
+#include <avr/io.h> 
+#include <util/delay.h> 
+#include <stdlib.h> 
+#include <string.h> 
+uint16_t ADCRead(const int); 
+void USART_putstring(char* StringPtr); 
+void setwheel(int IN1,int IN2,int IN3,int IN4); // 0/R/0/L 
+int leftSensor = 0; 
+int midSensor = 0; 
+int rightSensor = 0; 
+int ctl = 0, ctr = 0; 
+int main(void) 
+{ 
+//PD6 and PD5 for one motor 
+    //PB3 and PD3 for another motor 
+    //PC3 and PC2 and PC4 as IR sensor (right, middle, left)input and 
+PC3 as DMS sensor input 
+     
+    //set up mode for B, C, D 
+    DDRD = 0b01101000; 
+    DDRB = 0b00001000; 
+    DDRC = 0x0; 
+     
+    //set up clock mode for PWM for wheel control 
+    CLKPR=(1<<CLKPCE);//start 
+    //CLKPR=0b00000011; // set clk to 1Mhz 
+    CLKPR=0b00000000; 
+     
+    TCCR0A=0b10100011; // fast PWM, non-inverted 
+    TCCR0B=0b00000101; // prescaler = 1024 
+     
+    TCCR2A=0b10100011; // fast PWM, non-inverted 
+    TCCR2B=0b00000101; // prescaler = 1024 
+     
+    ADCSRA |= (1<<ADEN);// ADC on 
+     
+    //USART 
+    unsigned int BaudR = 9600; 
+    unsigned int ubrr = (F_CPU / (BaudR*16UL))-1; 
+    UBRR0H = (unsigned char)(ubrr>>8); 
+    UBRR0L = (unsigned)ubrr; 
+     
+    UCSR0C |= (1<<UCSZ01)|(1<<UCSZ00);//data bit 8 bit 
+    UCSR0B |= (1<<TXEN0);//transmitter enable 
+ 
+    while (1) 
+    { 
+        float sumValleft = 0; 
+        float sumValmid = 0; 
+        float sumValright = 0; 
+         
+        char Buffer[]=" "; 
+ 
+        //Left display 
+        sumValleft += (float)ADCRead(4);//sumVal=ADC 
+         
+        //for display on the screen 
+        char *intStrleft = itoa((int)sumValleft, Buffer, 10); 
+         
+        USART_putstring("IRsens/LefttSens: "); 
+        USART_putstring(intStrleft); 
+        USART_putstring(" , "); 
+        USART_putstring("\n"); 
+         
+        //_delay_ms(5); 
+         
+        //middle display 
+        sumValmid += (float)ADCRead(2);//sumVal=ADC 
+         
+        //for display on the screen 
+        char *intStrmid = itoa((int)sumValmid, Buffer, 10); 
+         
+        USART_putstring("DMSsens/MidSens: "); 
+        USART_putstring(intStrmid); 
+        USART_putstring(" , "); 
+        USART_putstring("\n"); 
+         
+        //_delay_ms(5); 
+         
+        //Right display 
+        sumValright += (float)ADCRead(3);//sumVal=ADC 
+         
+        //for display on the screen 
+        char *intStrright = itoa((int)sumValright, Buffer, 10); 
+         
+        USART_putstring("Rightsens: "); 
+        USART_putstring(intStrright); 
+        USART_putstring(" , "); 
+        USART_putstring("\n"); 
+        USART_putstring("\n"); 
+         
+        //_delay_ms(5); 
+ 
+        leftSensor= sumValleft; 
+        midSensor = sumValmid; 
+        rightSensor = sumValright; 
+         
+        int alphaForLeft = 0.03, alphaForRight = 0.15; 
+ 
+        if(midSensor > 500){ 
+            setwheel(0,255,0,149); 
+        } 
+         
+        //turn left 
+        else if(rightSensor > 400){ 
+            while(midSensor < 500){ 
+                sumValmid = (float)ADCRead(2); 
+                midSensor = ADCRead(2); 
+                int newvalL = 149-ctl*alphaForLeft; 
+                setwheel(0,30,0,newvalL); 
+                ctl = ctl + 1; 
+            } 
+            setwheel(0,255,0,0); 
+            //_delay_ms(1); 
+            setwheel(0,255,0,149); 
+            ctl = 0; 
+        } 
+         
+        //turn right 
+        else if(leftSensor > 400){ 
+            while (midSensor < 500){ 
+                sumValmid = (float)ADCRead(2); 
+                midSensor = sumValmid; 
+                int newvalR = 225-ctr*alphaForRight; 
+                setwheel(0,newvalR,0,20); 
+                ctr += 1; 
+            } 
+            setwheel(0,0,0,149); 
+            //_delay_ms(1); 
+            setwheel(0,255,0,149); 
+            ctr = 0; 
+        } 
+    } 
+} 
+ 
+uint16_t ADCRead(const int channel) { 
+    ADMUX = 0b01000000;//Avcc//channel ADC0 
+    ADMUX |= channel; 
+    ADCSRA |= (1<<ADSC); 
+    while ( (ADCSRA & (1<<ADIF)) ); 
+    return ADC; 
+} 
+ 
+void USART_putstring(char* StringPtr){ 
+    while(*StringPtr != 0x00){ 
+        while(!(UCSR0A & (1<<UDRE0)));//data register not empty 
+        UDR0 = *StringPtr; 
+        StringPtr++; 
+    } 
+} 
+ 
+void setwheel(int IN1,int IN2,int IN3,int IN4) 
+{ 
+    OCR0A = IN1; 
+    OCR0B = IN2; 
+    OCR2A = IN3; 
+    OCR2B = IN4; 
+} 
+ 
+ 
+ 
+ 
