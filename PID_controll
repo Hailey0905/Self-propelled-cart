@@ -1,0 +1,136 @@
+#define F_CPU 8000000UL 
+#include <avr/io.h> 
+#include <util/delay.h> 
+#include <stdlib.h> 
+#include <string.h> 
+uint16_t ADC3Read(const int channel); //right 
+uint16_t ADC2Read(const int channel); //middle 
+uint16_t ADC4Read(const int channel); //left 
+void PIDcontrol(float* error, float* Kp, float* Ki, float* Kd, const 
+float* Tp, float* integral, float* lastError, float* derivative); 
+void USART_putstring(char* StringPtr); 
+int main(){ 
+CLKPR=(1<<CLKPCE); 
+CLKPR=0b00000011; // set clk to 1Mhz 
+DDRD=0xFF; // PORTD as output 
+    DDRB=0xFF; // PORTB as output 
+    DDRC=0x00; // ADCs 
+ 
+    TCCR0A=0b10100001; // phase correct PWM 
+    TCCR0B=0b00000010; // timer prescaler 
+    TCCR2A=0b10100001; // phase correct PWM 
+    TCCR2B=0b00000010; // timer prescaler 
+    /* 
+    unsigned int BaudR = 9600; 
+    unsigned int ubrr = (F_CPU / (BaudR*16UL))-1; 
+    UBRR0H = (unsigned char)(ubrr>>8); 
+    UBRR0L = (unsigned char)ubrr; 
+    UCSR0C |= (1<<UCSZ01)|(1<<UCSZ00); 
+    UCSR0B |= (1<<TXEN0); 
+    */ 
+     
+    float Kp = 205; //for BOTH motor 
+    float Ki = 0; //~0.1 
+    float Kd = 5; 
+ 
+    const float Tp = 84; //motor maximum speed 
+    const float offset = 800; //constant 
+ 
+    float integral = 0; 
+    float lastError = 0; 
+    float derivative = 0; 
+ 
+    while(1){ 
+        ADCSRA |= (1<<ADEN); //ADC on 
+ 
+        float svL = 0; 
+        float svM = 0; 
+        float svR = 0; 
+ 
+        svL = (float)ADC3Read(3); // left 
+        svM = (float)ADC2Read(2); // mid 
+        svR = (float)ADC4Read(4); // right 
+ 
+        float error = 0; 
+        error += svL; 
+        error += svM; 
+        error += svR; 
+ 
+        error = offset/error; //real error 
+ 
+        if(svL>150){ //too left 
+            error*=-0.185; //for SPECIFIC motor //sign determine on 
+PIDcontrol func. 
+        } 
+        else if(svR>150){ //too right 
+            error*=0.35; 
+        } 
+        else 
+            error = 0; 
+        PIDcontrol(&error, &Kp, &Ki, &Kd, &Tp, &integral, &lastError, 
+&derivative); 
+    } 
+ 
+} 
+ 
+uint16_t ADC3Read(const int channel) { 
+    ADMUX = 0b01000011; 
+    ADMUX |= channel; 
+    ADCSRA |= (1<<ADSC) | (1<<ADIF); 
+    while ( (ADCSRA & (1<<ADIF)) == 0); 
+    ADCSRA &= ~(1<<ADSC); 
+    return ADC; 
+} 
+ 
+uint16_t ADC2Read(const int channel) { 
+    ADMUX = 0b01000010; 
+    ADMUX |= channel; 
+    ADCSRA |= (1<<ADSC) | (1<<ADIF); 
+    while ( (ADCSRA & (1<<ADIF)) == 0); 
+    ADCSRA &= ~(1<<ADSC); 
+    return ADC; 
+} 
+ 
+uint16_t ADC4Read(const int channel) { 
+    ADMUX = 0b010000100; 
+    ADMUX |= channel; 
+    ADCSRA |= (1<<ADSC) | (1<<ADIF); 
+    while ( (ADCSRA & (1<<ADIF)) == 0); 
+    ADCSRA &= ~(1<<ADSC); 
+    return ADC; 
+} 
+ 
+void PIDcontrol(float* error, float* Kp, float* Ki, float* Kd, const 
+float* Tp, float* integral, float* lastError, float* derivative) { 
+    *integral += *error; 
+    *derivative = *error-*lastError; 
+     
+    float turn = *Kp**error + *Ki**integral + *Kd**derivative; // revice 
+turn 
+ 
+    float right = *Tp+turn; 
+    float left = *Tp-turn; 
+ 
+    if (right>255) //avoid overflow 
+        right = 255; 
+    if (right<0) 
+        right = 0; 
+ 
+    if (left>255) //avoid overflow 
+        left = 255; 
+    if (left<0) 
+        left = 0; 
+ 
+    OCR0B = right; 
+    OCR2B = left;  
+     
+    *lastError = *error; 
+} 
+ 
+void USART_putstring(char* StringPtr) { 
+    while(*StringPtr != 0x00){ 
+        while(!(UCSR0A & (1<<UDRE0))); 
+        UDR0 = *StringPtr; 
+        StringPtr++; 
+    } 
+}
